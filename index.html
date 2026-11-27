@@ -1,0 +1,117 @@
+from pathlib import Path
+
+html = r'''<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="khaylagames" content="width=device-width, initial-scale=1.0">
+<title>Princess Run: Escape the Fire</title>
+<style>
+*{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;background:linear-gradient(135deg,#241044,#57266f 55%,#a64b83);font-family:Trebuchet MS,Arial,sans-serif;color:#fff;padding:18px}
+.wrap{width:min(900px,100%);text-align:center}.title{font-size:clamp(25px,5vw,42px);margin:0 0 6px;text-shadow:0 3px 0 #5d286b}.sub{margin:0 0 16px;color:#ffe3f5}
+.gamebox{position:relative;border:5px solid #ffd5f0;border-radius:22px;overflow:hidden;box-shadow:0 15px 45px #160b2c99;background:#241844}
+canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+.hud{position:absolute;top:12px;left:16px;right:16px;display:flex;justify-content:space-between;font-weight:bold;text-shadow:0 2px 4px #32134b;font-size:15px;pointer-events:none}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#21103988;padding:20px}
+.panel{background:#fff0fa;color:#54245f;border:3px solid #fff;border-radius:20px;padding:20px 26px;max-width:390px;box-shadow:0 8px 25px #17072966}
+.panel h2{margin:0 0 8px;font-size:27px}.panel p{margin:7px 0 15px;line-height:1.45}
+button{border:0;border-radius:999px;background:#ec65ad;color:white;font-weight:bold;font-size:16px;padding:12px 25px;cursor:pointer;box-shadow:0 4px 0 #a83b79}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 #a83b79}
+.hint{margin:13px 0 0;color:#ffe8fa;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="title">👑 Princess Run: Escape the Vampire 🧛‍♂️</h1>
+  <p class="sub">Bantu Princess menghindari vampire jahat dan kembali ke istana!</p>
+  <div class="gamebox">
+    <canvas id="game" width="900" height="390" aria-label="Game Princess Run"></canvas>
+    <div class="hud"><span>💎 SCORE: <b id="score">0</b></span><span>🏆 BEST: <b id="best">0</b></span></div>
+    <div class="overlay" id="overlay">
+      <div class="panel">
+        <h2 id="panelTitle">👸 Ready, Princess?</h2>
+        <p id="panelText">Lompat dan hindari vampire jahat. Jangan sampai Princess dilukai vampire!</p>
+        <button id="start">MULAI BERMAIN ✨</button>
+      </div>
+    </div>
+  </div>
+  <p class="hint">Tekan SPACE / ↑ atau klik layar untuk melompat. Bisa juga dimainkan dengan tap di HP.</p>
+</div>
+<script>
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best'),overlay=document.getElementById('overlay');
+const startBtn=document.getElementById('start'),panelTitle=document.getElementById('panelTitle'),panelText=document.getElementById('panelText');
+const W=canvas.width,H=canvas.height,ground=326;
+let princess,obstacles,particles,score,best=Number(localStorage.getItem('princessBest')||0),speed,frame,playing=false,ended=false;
+bestEl.textContent=best;
+function reset(){princess={x:115,y:ground-66,w:48,h:66,vy:0,onGround:true};obstacles=[];particles=[];score=0;speed=6;frame=0;scoreEl.textContent=0;ended=false}
+function rounded(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
+function background(){
+ let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#39205f');g.addColorStop(.65,'#a64d82');g.addColorStop(1,'#f18b91');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // moon and stars
+ ctx.fillStyle='#ffe6a8';ctx.beginPath();ctx.arc(745,75, thirty=31,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#39205f';ctx.beginPath();ctx.arc(758,64,27,0,Math.PI*2);ctx.fill();
+ for(let i=0;i<32;i++){let x=(i*137+40)%W,y=(i*53+23)%210;ctx.fillStyle=i%3?'#fff1d4':'#ffd0ef';ctx.globalAlpha=.55+.4*Math.sin(frame/18+i);ctx.fillText('✦',x,y);ctx.globalAlpha=1}
+ // distant castle
+ ctx.fillStyle='#56346f';ctx.beginPath();ctx.moveTo(0,260);ctx.lineTo(0,200);ctx.lineTo(70,200);ctx.lineTo(70,170);ctx.lineTo(100,170);ctx.lineTo(100,210);ctx.lineTo(160,210);ctx.lineTo(160,155);ctx.lineTo(190,155);ctx.lineTo(190,205);ctx.lineTo(250,205);ctx.lineTo(250,180);ctx.lineTo(285,180);ctx.lineTo(285,260);ctx.closePath();ctx.fill();
+ ctx.fillStyle='#f6b8d9';ctx.fillRect(158,190,34,70);ctx.fillStyle='#ffe0a5';ctx.beginPath();ctx.arc(175,195,11,Math.PI,0);ctx.fill();
+ // hills
+ ctx.fillStyle='#63336f';ctx.beginPath();ctx.moveTo(0,290);ctx.quadraticCurveTo(180,220,360,290);ctx.quadraticCurveTo(600,225,900,285);ctx.lineTo(900,390);ctx.lineTo(0,390);ctx.fill();
+ // ground
+ ctx.fillStyle='#39234e';ctx.fillRect(0,ground,W,H-ground);ctx.fillStyle='#f7a6c9';ctx.fillRect(0,ground,W,5);
+ for(let x=-(frame*speed*.7%70);x<W;x+=70){ctx.fillStyle='#765078';ctx.fillRect(x,ground+24,35,5)}
+}
+function drawPrincess(){
+ const p=princess;
+ // shadow
+ ctx.fillStyle='#28183b66';ctx.beginPath();ctx.ellipse(p.x+24,ground+2,29,6,0,0,Math.PI*2);ctx.fill();
+ // legs
+ ctx.strokeStyle='#f8d5c8';ctx.lineWidth=6;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(p.x+17,p.y+52);ctx.lineTo(p.x+14,p.y+63);ctx.moveTo(p.x+31,p.y+52);ctx.lineTo(p.x+35,p.y+63);ctx.stroke();
+ // dress
+ ctx.fillStyle='#f05da7';ctx.beginPath();ctx.moveTo(p.x+13,p.y+29);ctx.lineTo(p.x+35,p.y+29);ctx.lineTo(p.x+47,p.y+59);ctx.lineTo(p.x+2,p.y+59);ctx.closePath();ctx.fill();
+ ctx.fillStyle='#ffc3e2';ctx.beginPath();ctx.moveTo(p.x+22,p.y+30);ctx.lineTo(p.x+28,p.y+30);ctx.lineTo(p.x+33,p.y+57);ctx.lineTo(p.x+17,p.y+57);ctx.closePath();ctx.fill();
+ // head and hair
+ ctx.fillStyle='#f5c6a8';ctx.beginPath();ctx.arc(p.x+24,p.y+17,16,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#713a37';ctx.beginPath();ctx.arc(p.x+23,p.y+12,17,Math.PI,Math.PI*2);ctx.lineTo(p.x+41,p.y+39);ctx.lineTo(p.x+34,p.y+35);ctx.lineTo(p.x+34,p.y+17);ctx.fill();
+ // face
+ ctx.fillStyle='#4b2945';ctx.beginPath();ctx.arc(p.x+19,p.y+18,1.7,0,7);ctx.arc(p.x+29,p.y+18,1.7,0,7);ctx.fill();
+ ctx.strokeStyle='#bd5977';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(p.x+24,p.y+22,4,0.2,2.8);ctx.stroke();
+ // crown
+ ctx.fillStyle='#ffd34f';ctx.beginPath();ctx.moveTo(p.x+10,p.y+5);ctx.lineTo(p.x+12,p.y-5);ctx.lineTo(p.x+21,p.y+1);ctx.lineTo(p.x+27,p.y-7);ctx.lineTo(p.x+34,p.y+2);ctx.lineTo(p.x+39,p.y-4);ctx.lineTo(p.x+39,p.y+7);ctx.closePath();ctx.fill();
+ ctx.fillStyle='#fff2a6';ctx.fillRect(p.x+12,p.y+5,25,4);
+}
+function drawObstacle(o){
+ ctx.save();ctx.translate(o.x,o.y);
+ if(o.type===0){ctx.font='42px serif';ctx.fillText('🧛‍♂️',0,0);ctx.font='18px serif';ctx.fillText('',9,-28)}
+ else {ctx.font='48px serif';ctx.fillText('🧛‍♀️',0,0)}
+ ctx.restore();
+}
+function spawn(){let type=Math.random()<.72?0:1;obstacles.push({x:W+20,y:ground-5,w:type===0?38:48,h:type===0?42:45,type})}
+function jump(){if(!playing){if(!ended)begin();return}if(princess.onGround){princess.vy=-15.5;princess.onGround=false;for(let i=0;i<5;i++)particles.push({x:princess.x+20,y:ground,vx:(Math.random()-.5)*3,vy:-Math.random()*3-1,life:24})}}
+function begin(){reset();playing=true;overlay.style.display='none';loop()}
+function gameOver(){playing=false;ended=true;best=Math.max(best,Math.floor(score));localStorage.setItem('princessBest',best);bestEl.textContent=best;panelTitle.textContent='💔 Oh no, Princess!';panelText.textContent='Princess terkena api! Skor kamu: '+Math.floor(score)+'. Ayo coba lagi dan selamatkan kerajaan!';startBtn.textContent='COBA LAGI 👑';overlay.style.display='flex'}
+function loop(){
+ if(!playing)return;frame++;background();
+ // jump physics
+ princess.vy+=.72;princess.y+=princess.vy;if(princess.y+princess.h>=ground){princess.y=ground-princess.h;princess.vy=0;princess.onGround=true}
+ if(frame%Math.max(48,Math.floor(92-speed*3))===0)spawn();
+ obstacles.forEach(o=>{o.x-=speed;drawObstacle(o);
+   const bx=o.x+8,by=o.y-o.h+7,bw=o.w-15,bh=o.h-8;
+   if(princess.x+39>bx&&princess.x+9<bx+bw&&princess.y+57>by&&princess.y+12<by+bh)gameOver();
+ });
+ obstacles=obstacles.filter(o=>o.x>-70);
+ particles.forEach(a=>{a.x+=a.vx;a.y+=a.vy;a.vy+=.15;a.life--;ctx.globalAlpha=Math.max(0,a.life/24);ctx.fillStyle='#ffe3a8';ctx.fillText('✦',a.x,a.y);ctx.globalAlpha=1});
+ particles=particles.filter(a=>a.life>0);
+ drawPrincess();score+=.12;speed=Math.min(11,6+score/180);scoreEl.textContent=Math.floor(score);
+ if(playing)requestAnimationFrame(loop);
+}
+startBtn.addEventListener('click',begin);
+window.addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();jump()}});
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();jump()});
+reset();background();drawPrincess();
+</script>
+</body>
+</html>'''
+path = Path("/mnt/data/princess_run_escape_the_fire.html")
+path.write_text(html, encoding="utf-8")
+print(path, path.stat().st_size)
